@@ -225,44 +225,36 @@ def _get_dimensions(env, hidden_layer_dimensions):
     return dimensions
 
 
-def _get_qfun(framework, dimensions, learning_rate, model_path=None, use_dropout=False):
-    if framework.startswith("pytorch"):
-        ffw = FeedForwardTorch(dimensions=dimensions,
-                               activations=[(nn.BatchNorm1d if use_dropout else nn.ReLU) for _ in range(len(dimensions) - 2)] + [None],
-                               loss_fun=nnF.mse_loss,
-                               optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate, betas=(0.9, 0.98), eps=1e-8))
-        if framework.endswith("_cuda") and torch.cuda.is_available():
-            device = torch.device("cuda:0")
-            ffw.cuda(device)
-            q_fun = QFun(model=ffw,
-                         eval_switch=ffw.eval,
-                         list_to_tensor=torch.cuda.FloatTensor,
-                         nparray_to_tensor=lambda x: torch.from_numpy(x).to(device),
-                         argmax=torch.argmax)
-        else:
-            q_fun = QFun(model=ffw,
-                         eval_switch=ffw.eval,
-                         list_to_tensor=torch.Tensor,
-                         nparray_to_tensor=torch.from_numpy,
-                         argmax=torch.argmax)
-    else:
-        raise ValueError("Framework '{}' is not supported. Use 'pytorch' or 'pytorch_cuda'".format(framework))
-
-    if model_path:
-        ffw.load(path=model_path)
+def _get_qfun(dimensions, learning_rate):
+    ffw = FeedForwardTorch(dimensions=dimensions,
+                           activations=[nn.ReLU for _ in range(len(dimensions) - 2)] + [None],
+                           loss_fun=nnF.mse_loss,
+                           optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate, betas=(0.9, 0.98), eps=1e-8))
+    q_fun = QFun(model=ffw,
+                 eval_switch=ffw.eval,
+                 list_to_tensor=torch.Tensor,
+                 nparray_to_tensor=torch.from_numpy,
+                 argmax=torch.argmax)
 
     return q_fun
 
 
-def train_lunar_lander(env, framework="pytorch", hidden_layer_dimensions = [128, 64],
-                       use_dropout=False,
+def train_lunar_lander(env, hidden_layer_dimensions = [128, 64],
                        training_episode_count=2000,
-                       alpha=1e-4, gamma=0.99,
-                       epsilon_start=1.0, epsilon_decay=0.998, epsilon_min=0.0,
-                       replay_memory_size=2 ** 16, replay_sample_size=32, training_start_memory_size=64,
+                       alpha=1e-4,
+                       gamma=0.99,
+                       epsilon_start=1.0,
+                       epsilon_decay=0.998,
+                       epsilon_min=0.0,
+                       replay_memory_size=2 ** 16,
+                       replay_sample_size=32,
+                       training_start_memory_size=64,
                        mean_reward_recency=100):
-    dimensions = _get_dimensions(env, hidden_layer_dimensions)
-    q_fun = _get_qfun(framework, dimensions, alpha, use_dropout=use_dropout)
+
+    # set the dimensions of the model
+    # the input size is the dimension of the observation, the output size is the dimension of the action space
+    dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
+    q_fun = _get_qfun(dimensions, alpha)
 
     lunar_lander = QLearner(env=env,
                             q_fun=q_fun,
@@ -280,10 +272,15 @@ def train_lunar_lander(env, framework="pytorch", hidden_layer_dimensions = [128,
 
 env = gym.make('LunarLander-v2')
 
-train_lunar_lander(env, framework="pytorch", hidden_layer_dimensions = [128, 64],
-                        use_dropout=False,
-                        training_episode_count=2000,
-                        alpha=1e-4, gamma=0.99,
-                        epsilon_start=1.0, epsilon_decay=0.998, epsilon_min=0.0,
-                        replay_memory_size=2 ** 16, replay_sample_size=32, training_start_memory_size=64,
-                        mean_reward_recency=100)
+train_lunar_lander(env,
+                   hidden_layer_dimensions = [128, 64],
+                   training_episode_count=2000,
+                   alpha=1e-4,
+                   gamma=0.99,
+                   epsilon_start=1.0,
+                   epsilon_decay=0.998,
+                   epsilon_min=0.0,
+                   replay_memory_size=2 ** 16,
+                   replay_sample_size=32,
+                   training_start_memory_size=64,
+                   mean_reward_recency=100)
