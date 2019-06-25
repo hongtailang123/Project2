@@ -51,31 +51,36 @@ class QLearner:
         self.epsilon_decay = epsilon_decay
         self.epsilon_end = epsilon_min
         self.gamma = gamma
-        self._action_count = env.action_space.n
 
-    def _get_batch(self, replay_memory, sample_size):
+    def get_experience_replay_data(self, replay_memory, replay_size):
         # current states, actions, rewards, next states and 'done' flags
-        experience_sample = random.sample(replay_memory, sample_size)
-        states = [record[0] for record in experience_sample]
-        states_next = [record[3] for record in experience_sample]
+        experience_sample = random.sample(replay_memory, replay_size)
+
+        # current states
+        states = [es[0] for es in experience_sample]
         states = torch.tensor(states)
-        states_next = torch.tensor(states_next)
         q_vals = self.model.predict(states)
+
+        # next states
+        states_next = [es[3] for es in experience_sample]
+        states_next = torch.tensor(states_next)
         q_vals_next = self.model.predict(states_next)
 
-        for i in range(sample_size):
-            action_i = experience_sample[i][1]
-            reward_i = experience_sample[i][2]
+        for i in range(replay_size):
+            a = experience_sample[i][1]
+            r = experience_sample[i][2]
 
-            if experience_sample[i][4]:  # if done
-                q_vals[i, action_i] = reward_i
+            # if done
+            if experience_sample[i][4]:
+                q_vals[i, a] = r
             else:
-                q_vals[i, action_i] = float(reward_i + self.gamma * max(q_vals_next[i]))
+                q_vals[i, a] = float(r + self.gamma * max(q_vals_next[i]))
 
         return states, q_vals
 
-    def run(self, episode_count=2500,
-            epsilon_start=1.0,
+    def run(self,
+            num_episodes=2000,
+            current_epsilon=1.0,
             replay_memory=2 ** 16,
             replay_sample_size=32,
             training_start_memory_size=64,
@@ -84,59 +89,59 @@ class QLearner:
             train=True,
             render=False):
 
-        if episode_count == 0:
-            return 0, None
-
         logs = None
         if type(logging) is pd.DataFrame:
             logs = logging
             logging = True
 
-        loss = -1
         env, model = self.env, self.model
 
         if train:
             replay_memory = deque([], maxlen=replay_memory)
-
         recent_rewards = [0] * most_recent_count
-        for episode_idx in range(episode_count):
-            curr_total_reward = 0
-            curr_state = env.reset()
+
+        for episode_idx in range(num_episodes):
+
+            total_reward = 0
+            current_state = env.reset()
             done = False
             action_count = 0
 
             train_start_time = time()
             while not done:
-                prev_state = curr_state
+                prev_state = current_state
 
-                if epsilon_start > 0 and random.random() < epsilon_start:
+                # epsilon greedy strategy to select the actions to take
+                if current_epsilon > 0 and random.random() < current_epsilon:
                     act = env.action_space.sample()
                 else:
-                    curr_state = torch.from_numpy(curr_state)
-                    act = int(torch.argmax(model.predict(curr_state)))
+                    current_state = torch.from_numpy(current_state)
+                    act = int(torch.argmax(model.predict(current_state)))
 
-                curr_state, reward, done, next_state = env.step(act)
+                # interact with the environment
+                current_state, reward, done, info = env.step(act)
+
                 if render:
                     env.render();
                 if train:
-                    replay_memory.append((prev_state, act, reward, curr_state, done))
+                    replay_memory.append((prev_state, act, reward, current_state, done))
                     if len(replay_memory) >= training_start_memory_size:
-                        loss = float(self.model.train([self._get_batch(replay_memory, replay_sample_size)]))
-                else:
-                    loss = 0
-                curr_total_reward += reward
+                        loss = float(self.model.train([self.get_experience_replay_data(replay_memory, replay_sample_size)]))
+                    else:
+                        loss = 0
+                total_reward += reward
                 action_count += 1
             curr_time_use = time() - train_start_time
 
-            if epsilon_start > self.epsilon_end:
-                epsilon_start *= self.epsilon_decay
+            if current_epsilon > self.epsilon_end:
+                current_epsilon *= self.epsilon_decay
 
-            recent_rewards[episode_idx % most_recent_count] = curr_total_reward
+            recent_rewards[episode_idx % most_recent_count] = total_reward
 
             most_rent_mean_reward = sum(recent_rewards) / most_recent_count
 
             log_entry = (
-            episode_idx, curr_total_reward, most_rent_mean_reward, loss, epsilon_start, action_count, curr_time_use)
+                episode_idx, total_reward, most_rent_mean_reward, loss, current_epsilon, action_count, curr_time_use)
             if logging:
                 if logs is None:
                     logs = pd.DataFrame(columns=("Episode", "Total Reward", "Mean Reward", "Train Loss", "Epsilon", "Actions", "Training Time"))
@@ -150,8 +155,8 @@ class QLearner:
     def train(self, episode_count=2500, epsilon_start=1.0, replay_memory=2 ** 16, replay_sample_size=32,
               training_start_memory_size=64, mean_reward_recency=100,
               logging=True, render=False):
-        return self.run(episode_count=episode_count,
-                        epsilon_start=epsilon_start,
+        return self.run(num_episodes=episode_count,
+                        current_epsilon=epsilon_start,
                         replay_memory=replay_memory,
                         replay_sample_size=replay_sample_size,
                         training_start_memory_size=max(replay_sample_size, training_start_memory_size),
@@ -161,8 +166,8 @@ class QLearner:
     def test(self, start_episode_idx=0, episode_count=100, logging=True, continued_learning=True, replay_memory=2 ** 16,
              replay_sample_size=32, render=False):
         return self.run(start_episode_idx=start_episode_idx,
-                        episode_count=episode_count,
-                        epsilon_start=0,
+                        num_episodes=episode_count,
+                        current_epsilon=0,
                         replay_memory=replay_memory,
                         replay_sample_size=replay_sample_size,
                         most_recent_count=episode_count,
