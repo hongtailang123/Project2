@@ -63,7 +63,7 @@ class QLearner:
         self._action_count = env.action_space.n
 
     def _get_batch(self, replay_memory, sample_size):
-        # five columns: states, actions, rewards, next states and 'done' flags
+        # current states, actions, rewards, next states and 'done' flags
         experience_sample = random.sample(replay_memory, sample_size)
         states = [record[0] for record in experience_sample]
         states_next = [record[3] for record in experience_sample]
@@ -89,9 +89,7 @@ class QLearner:
             replay_memory=2 ** 16,
             replay_sample_size=32,
             training_start_memory_size=64,
-            stop_mean_reward=None,
             most_recent_count=100,
-            start_episode_idx=0,
             logging=True,
             train=True,
             render=False):
@@ -113,7 +111,7 @@ class QLearner:
             Q_fun.eval_switch()
 
         recent_rewards = [0] * most_recent_count
-        for episode_idx in range(start_episode_idx, episode_count + start_episode_idx):
+        for episode_idx in range(episode_count):
             curr_total_reward = 0
             curr_state = env.reset()
             done = False
@@ -146,17 +144,12 @@ class QLearner:
             if epsilon_start > self.epsilon_end:
                 epsilon_start *= self.epsilon_decay
 
-            recent_rewards[(episode_idx - start_episode_idx) % most_recent_count] = curr_total_reward
+            recent_rewards[episode_idx % most_recent_count] = curr_total_reward
 
-            if episode_idx - start_episode_idx >= most_recent_count - 1:
-                recent_mean_reward = sum(recent_rewards) / most_recent_count
-                if stop_mean_reward is not None and recent_mean_reward > stop_mean_reward:
-                    break
-            else:
-                recent_mean_reward = -1
+            most_rent_mean_reward = sum(recent_rewards) / most_recent_count
 
             log_entry = (
-            episode_idx, curr_total_reward, recent_mean_reward, loss, epsilon_start, action_count, curr_time_use)
+            episode_idx, curr_total_reward, most_rent_mean_reward, loss, epsilon_start, action_count, curr_time_use)
             if logging:
                 if logs is None:
                     logs = pd.DataFrame(columns=("Episode", "Total Reward", "Mean Reward", "Train Loss", "Epsilon", "Actions", "Training Time"))
@@ -165,7 +158,7 @@ class QLearner:
 
         logs["Episode"] = logs["Episode"].astype(int)
         logs["Actions"] = logs["Actions"].astype(int)
-        return recent_mean_reward, logs
+        return most_rent_mean_reward, logs
 
     def train(self, episode_count=2500, epsilon_start=1.0, replay_memory=2 ** 16, replay_sample_size=32,
               training_start_memory_size=64, stop_mean_reward=None, mean_reward_recency=100, start_episode_idx=0,
@@ -175,8 +168,6 @@ class QLearner:
                         replay_memory=replay_memory,
                         replay_sample_size=replay_sample_size,
                         training_start_memory_size=max(replay_sample_size, training_start_memory_size),
-                        stop_mean_reward=stop_mean_reward,
-                        start_episode_idx=start_episode_idx,
                         most_recent_count=mean_reward_recency,
                         logging=logging, train=True, render=render)
 
@@ -192,14 +183,6 @@ class QLearner:
 
 
 # implements the lunar lander agent
-
-def _get_dimensions(env, hidden_layer_dimensions):
-    state_dim = env.observation_space.shape[0]
-    action_count = env.action_space.n
-    dimensions = [state_dim] + hidden_layer_dimensions + [action_count]
-    return dimensions
-
-
 def _get_qfun(dimensions, learning_rate):
     ffw = FeedForwardNetwork(dimensions=dimensions,
                              loss_fun=nnF.mse_loss,
@@ -223,7 +206,7 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                        replay_memory_size=2 ** 16,
                        replay_sample_size=32,
                        training_start_memory_size=64,
-                       mean_reward_recency=100):
+                       most_recent_count=100):
 
     # set the dimensions of the model
     # the input size is the dimension of the observation, the output size is the dimension of the action space
@@ -256,4 +239,4 @@ if __name__ == "__main__":
                        replay_memory_size=2 ** 16,
                        replay_sample_size=32,
                        training_start_memory_size=64,
-                       mean_reward_recency=100)
+                       most_recent_count=100)
