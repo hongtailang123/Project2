@@ -44,19 +44,10 @@ class FeedForwardNetwork(nn.Module):
         return self.__call__(x)
 
 
-class QFun:
-    def __init__(self, model, eval_switch, list_to_tensor, nparray_to_tensor, argmax):
-        self.model = model
-        self.eval_switch = eval_switch
-        self.list_to_tensor = list_to_tensor
-        self.nparray_to_tensor = nparray_to_tensor
-        self.argmax = argmax
-
-
 class QLearner:
-    def __init__(self, env, q_fun, epsilon_decay=0.998, epsilon_min=0.1, gamma=0.99):
+    def __init__(self, env, model, epsilon_decay=0.998, epsilon_min=0.1, gamma=0.99):
         self.env = env
-        self.Q_fun = q_fun
+        self.model = model
         self.epsilon_decay = epsilon_decay
         self.epsilon_end = epsilon_min
         self.gamma = gamma
@@ -67,11 +58,10 @@ class QLearner:
         experience_sample = random.sample(replay_memory, sample_size)
         states = [record[0] for record in experience_sample]
         states_next = [record[3] for record in experience_sample]
-        if self.Q_fun.list_to_tensor:
-            states = self.Q_fun.list_to_tensor(states)
-            states_next = self.Q_fun.list_to_tensor(states_next)
-        q_vals = self.Q_fun.model.predict(states)
-        q_vals_next = self.Q_fun.model.predict(states_next)
+        states = torch.tensor(states)
+        states_next = torch.tensor(states_next)
+        q_vals = self.model.predict(states)
+        q_vals_next = self.model.predict(states_next)
 
         for i in range(sample_size):
             action_i = experience_sample[i][1]
@@ -103,12 +93,10 @@ class QLearner:
             logging = True
 
         loss = -1
-        env, Q_fun = self.env, self.Q_fun
+        env, model = self.env, self.model
 
         if train:
             replay_memory = deque([], maxlen=replay_memory)
-        elif Q_fun.eval_switch is not None:
-            Q_fun.eval_switch()
 
         recent_rewards = [0] * most_recent_count
         for episode_idx in range(episode_count):
@@ -124,9 +112,8 @@ class QLearner:
                 if epsilon_start > 0 and random.random() < epsilon_start:
                     act = env.action_space.sample()
                 else:
-                    if Q_fun.nparray_to_tensor:
-                        curr_state = Q_fun.nparray_to_tensor(curr_state)
-                    act = int(Q_fun.argmax(Q_fun.model.predict(curr_state)))
+                    curr_state = torch.from_numpy(curr_state)
+                    act = int(torch.argmax(model.predict(curr_state)))
 
                 curr_state, reward, done, next_state = env.step(act)
                 if render:
@@ -134,7 +121,7 @@ class QLearner:
                 if train:
                     replay_memory.append((prev_state, act, reward, curr_state, done))
                     if len(replay_memory) >= training_start_memory_size:
-                        loss = float(Q_fun.model.train([self._get_batch(replay_memory, replay_sample_size)]))
+                        loss = float(self.model.train([self._get_batch(replay_memory, replay_sample_size)]))
                 else:
                     loss = 0
                 curr_total_reward += reward
@@ -161,7 +148,7 @@ class QLearner:
         return most_rent_mean_reward, logs
 
     def train(self, episode_count=2500, epsilon_start=1.0, replay_memory=2 ** 16, replay_sample_size=32,
-              training_start_memory_size=64, stop_mean_reward=None, mean_reward_recency=100, start_episode_idx=0,
+              training_start_memory_size=64, mean_reward_recency=100,
               logging=True, render=False):
         return self.run(episode_count=episode_count,
                         epsilon_start=epsilon_start,
@@ -182,20 +169,6 @@ class QLearner:
                         logging=logging, train=continued_learning, render=render)
 
 
-# implements the lunar lander agent
-def _get_qfun(dimensions, learning_rate):
-    ffw = FeedForwardNetwork(dimensions=dimensions,
-                             loss_fun=nnF.mse_loss,
-                             optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate))
-    q_fun = QFun(model=ffw,
-                 eval_switch=ffw.eval,
-                 list_to_tensor=torch.Tensor,
-                 nparray_to_tensor=torch.from_numpy,
-                 argmax=torch.argmax)
-
-    return q_fun
-
-
 def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                        training_episode_count=2000,
                        alpha=1e-4,
@@ -211,10 +184,13 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
     # set the dimensions of the model
     # the input size is the dimension of the observation, the output size is the dimension of the action space
     dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
-    q_fun = _get_qfun(dimensions, alpha)
+
+    ffw = FeedForwardNetwork(dimensions=dimensions,
+                             loss_fun=nnF.mse_loss,
+                             optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=alpha))
 
     lunar_lander = QLearner(env=env,
-                            q_fun=q_fun,
+                            model=ffw,
                             epsilon_decay=epsilon_decay,
                             epsilon_min=epsilon_min,
                             gamma=gamma)
@@ -224,7 +200,7 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                                            replay_memory=replay_memory_size,
                                            replay_sample_size=replay_sample_size,
                                            training_start_memory_size=training_start_memory_size,
-                                           mean_reward_recency=mean_reward_recency)
+                                           mean_reward_recency=most_recent_count)
 
 if __name__ == "__main__":
     env = gym.make('LunarLander-v2')
