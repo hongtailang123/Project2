@@ -37,35 +37,22 @@ class FeedForwardTorch(nn.Module):
     def forward(self, x):
         return self.ffw(x)
 
-    def train(self, mini_batches, stop_loss=1e-6, max_iter=1000, mode=True):
+    def train(self, mini_batches):
         self.ffw.train()
         # super(FeedForwardTorch, self).train(mode)
         loss = None
-        if mini_batches:
-            for _ in range(max_iter):
-                for x, y in mini_batches:
-                    self.zero_grad()
-                    loss = self.loss_fun(self.__call__(x), y)
-                    # loss = self.loss_fun(x, y)
-                    if loss < stop_loss:
-                        break
-                    loss.backward()
-                    self.optimizer.step()
+        for x, y in mini_batches:
+            self.zero_grad()
+            loss = self.loss_fun(self.__call__(x), y)
+            loss.backward()
+            self.optimizer.step()
+
         return loss
+
 
     def predict(self, x):
         self.ffw.eval()
         return self.__call__(x)
-
-    def save(self, path):
-        torch.save(self.ffw.state_dict(), path)
-
-    def load(self, path):
-        self.ffw.load_state_dict(torch.load(path))
-        self.ffw.eval()
-
-
-# implements a general deep q-learning framework
 
 
 class QFun:
@@ -78,7 +65,7 @@ class QFun:
 
 
 class QLearner:
-    def __init__(self, env, q_fun, epsilon_decay = 0.998, epsilon_min = 0.1, gamma = 0.99):
+    def __init__(self, env, q_fun, epsilon_decay=0.998, epsilon_min=0.1, gamma=0.99):
         self.env = env
         self.Q_fun = q_fun
         self.epsilon_decay = epsilon_decay
@@ -108,7 +95,7 @@ class QLearner:
 
         return states, q_vals
 
-    def run(self, episode_count = 2500,
+    def run(self, episode_count=2500,
             epsilon_start=1.0,
             replay_memory=2 ** 16,
             replay_sample_size=32,
@@ -165,7 +152,7 @@ class QLearner:
                 if train:
                     replay_memory.append((prev_state, act, reward, curr_state, done))
                     if len(replay_memory) >= training_start_memory_size:
-                        loss = float(Q_fun.model.train([self._get_batch(replay_memory, replay_sample_size)], max_iter=1))
+                        loss = float(Q_fun.model.train([self._get_batch(replay_memory, replay_sample_size)]))
                 else:
                     loss = 0
                 curr_total_reward += reward
@@ -184,7 +171,8 @@ class QLearner:
             else:
                 recent_mean_reward = -1
 
-            log_entry = (episode_idx, curr_total_reward, recent_mean_reward, loss, epsilon_start, action_count, curr_time_use)
+            log_entry = (
+            episode_idx, curr_total_reward, recent_mean_reward, loss, epsilon_start, action_count, curr_time_use)
             if logging:
                 if logs is None:
                     logs = pd.DataFrame(columns=("Episode", "Total Reward", "Mean Reward", "Train Loss", "Epsilon", "Actions", "Training Time"))
@@ -195,7 +183,9 @@ class QLearner:
         logs["Actions"] = logs["Actions"].astype(int)
         return recent_mean_reward, logs
 
-    def train(self, episode_count = 2500, epsilon_start=1.0, replay_memory=2 ** 16, replay_sample_size=32, training_start_memory_size=64, stop_mean_reward=None, mean_reward_recency=100, start_episode_idx=0, logging=True, render=False):
+    def train(self, episode_count=2500, epsilon_start=1.0, replay_memory=2 ** 16, replay_sample_size=32,
+              training_start_memory_size=64, stop_mean_reward=None, mean_reward_recency=100, start_episode_idx=0,
+              logging=True, render=False):
         return self.run(episode_count=episode_count,
                         epsilon_start=epsilon_start,
                         replay_memory=replay_memory,
@@ -206,7 +196,8 @@ class QLearner:
                         mean_reward_recency=mean_reward_recency,
                         logging=logging, train=True, render=render)
 
-    def test(self, start_episode_idx=0, episode_count=100, logging=True, continued_learning=True, replay_memory=2 ** 16, replay_sample_size=32, render=False):
+    def test(self, start_episode_idx=0, episode_count=100, logging=True, continued_learning=True, replay_memory=2 ** 16,
+             replay_sample_size=32, render=False):
         return self.run(start_episode_idx=start_episode_idx,
                         episode_count=episode_count,
                         epsilon_start=0,
@@ -229,7 +220,8 @@ def _get_qfun(dimensions, learning_rate):
     ffw = FeedForwardTorch(dimensions=dimensions,
                            activations=[nn.ReLU for _ in range(len(dimensions) - 2)] + [None],
                            loss_fun=nnF.mse_loss,
-                           optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate, betas=(0.9, 0.98), eps=1e-8))
+                           optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate,
+                                                                         betas=(0.9, 0.98), eps=1e-8))
     q_fun = QFun(model=ffw,
                  eval_switch=ffw.eval,
                  list_to_tensor=torch.Tensor,
@@ -239,7 +231,7 @@ def _get_qfun(dimensions, learning_rate):
     return q_fun
 
 
-def train_lunar_lander(env, hidden_layer_dimensions = [128, 64],
+def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                        training_episode_count=2000,
                        alpha=1e-4,
                        gamma=0.99,
@@ -250,7 +242,6 @@ def train_lunar_lander(env, hidden_layer_dimensions = [128, 64],
                        replay_sample_size=32,
                        training_start_memory_size=64,
                        mean_reward_recency=100):
-
     # set the dimensions of the model
     # the input size is the dimension of the observation, the output size is the dimension of the action space
     dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
@@ -273,7 +264,7 @@ def train_lunar_lander(env, hidden_layer_dimensions = [128, 64],
 env = gym.make('LunarLander-v2')
 
 train_lunar_lander(env,
-                   hidden_layer_dimensions = [128, 64],
+                   hidden_layer_dimensions=[128, 64],
                    training_episode_count=2000,
                    alpha=1e-4,
                    gamma=0.99,
