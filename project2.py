@@ -9,9 +9,9 @@ import random
 import torch.nn.functional as nnF
 
 
-class FeedForwardTorch(nn.Module):
+class FeedForwardNetwork(nn.Module):
     def __init__(self, dimensions, loss_fun, optimizer):
-        super(FeedForwardTorch, self).__init__()
+        super(FeedForwardNetwork, self).__init__()
 
         self.layer_count = len(dimensions) - 1
         layers = []
@@ -29,7 +29,6 @@ class FeedForwardTorch(nn.Module):
 
     def train(self, mini_batches):
         self.ffw.train()
-        # super(FeedForwardTorch, self).train(mode)
         loss = None
         for x, y in mini_batches:
             self.zero_grad()
@@ -91,7 +90,7 @@ class QLearner:
             replay_sample_size=32,
             training_start_memory_size=64,
             stop_mean_reward=None,
-            mean_reward_recency=100,
+            most_recent_count=100,
             start_episode_idx=0,
             logging=True,
             train=True,
@@ -109,16 +108,11 @@ class QLearner:
         env, Q_fun = self.env, self.Q_fun
 
         if train:
-            if type(replay_memory) is int:
-                replay_memory = deque([], maxlen=replay_memory)
-            elif type(replay_memory) is list:
-                replay_memory = deque(replay_memory, maxlen=len(replay_memory))
-            elif type(replay_memory) is not deque:
-                raise ValueError("The replay_memory should be an integer, a list or a collections.deque object")
+            replay_memory = deque([], maxlen=replay_memory)
         elif Q_fun.eval_switch is not None:
             Q_fun.eval_switch()
 
-        recent_rewards = [0] * mean_reward_recency
+        recent_rewards = [0] * most_recent_count
         for episode_idx in range(start_episode_idx, episode_count + start_episode_idx):
             curr_total_reward = 0
             curr_state = env.reset()
@@ -152,10 +146,10 @@ class QLearner:
             if epsilon_start > self.epsilon_end:
                 epsilon_start *= self.epsilon_decay
 
-            recent_rewards[(episode_idx - start_episode_idx) % mean_reward_recency] = curr_total_reward
+            recent_rewards[(episode_idx - start_episode_idx) % most_recent_count] = curr_total_reward
 
-            if episode_idx - start_episode_idx >= mean_reward_recency - 1:
-                recent_mean_reward = sum(recent_rewards) / mean_reward_recency
+            if episode_idx - start_episode_idx >= most_recent_count - 1:
+                recent_mean_reward = sum(recent_rewards) / most_recent_count
                 if stop_mean_reward is not None and recent_mean_reward > stop_mean_reward:
                     break
             else:
@@ -183,7 +177,7 @@ class QLearner:
                         training_start_memory_size=max(replay_sample_size, training_start_memory_size),
                         stop_mean_reward=stop_mean_reward,
                         start_episode_idx=start_episode_idx,
-                        mean_reward_recency=mean_reward_recency,
+                        most_recent_count=mean_reward_recency,
                         logging=logging, train=True, render=render)
 
     def test(self, start_episode_idx=0, episode_count=100, logging=True, continued_learning=True, replay_memory=2 ** 16,
@@ -193,7 +187,7 @@ class QLearner:
                         epsilon_start=0,
                         replay_memory=replay_memory,
                         replay_sample_size=replay_sample_size,
-                        mean_reward_recency=episode_count,
+                        most_recent_count=episode_count,
                         logging=logging, train=continued_learning, render=render)
 
 
@@ -207,9 +201,9 @@ def _get_dimensions(env, hidden_layer_dimensions):
 
 
 def _get_qfun(dimensions, learning_rate):
-    ffw = FeedForwardTorch(dimensions=dimensions,
-                           loss_fun=nnF.mse_loss,
-                           optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate))
+    ffw = FeedForwardNetwork(dimensions=dimensions,
+                             loss_fun=nnF.mse_loss,
+                             optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate))
     q_fun = QFun(model=ffw,
                  eval_switch=ffw.eval,
                  list_to_tensor=torch.Tensor,
