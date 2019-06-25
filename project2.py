@@ -10,27 +10,17 @@ import torch.nn.functional as nnF
 
 
 class FeedForwardTorch(nn.Module):
-    def __init__(self, dimensions, activations, loss_fun, optimizer):
+    def __init__(self, dimensions, loss_fun, optimizer):
         super(FeedForwardTorch, self).__init__()
 
         self.layer_count = len(dimensions) - 1
-        if self.layer_count == 1:
-            self.ffw = nn.Linear(dimensions[0], dimensions[1])
-            if activations and activations[0]:
-                self.ffw = activations[0](self.ffw)
-        else:
-            layers = []
-            if activations:
-                for i in range(self.layer_count):
-                    layers.append(nn.Linear(dimensions[i], dimensions[i + 1]))
-                    if activations[i]:
-                        layers.append(activations[i]())
-            else:
-                for i in range(self.layer_count):
-                    layers.append(nn.Linear(dimensions[i], dimensions[i + 1]))
+        layers = []
+        for i in range(self.layer_count):
+            layers.append(nn.Linear(dimensions[i], dimensions[i + 1]))
+            if i != self.layer_count - 1:
+                layers.append(nn.ReLU())
 
-            self.ffw = nn.Sequential(*layers)
-
+        self.ffw = nn.Sequential(*layers)
         self.loss_fun = loss_fun
         self.optimizer = optimizer(self.parameters())
 
@@ -218,10 +208,8 @@ def _get_dimensions(env, hidden_layer_dimensions):
 
 def _get_qfun(dimensions, learning_rate):
     ffw = FeedForwardTorch(dimensions=dimensions,
-                           activations=[nn.ReLU for _ in range(len(dimensions) - 2)] + [None],
                            loss_fun=nnF.mse_loss,
-                           optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate,
-                                                                         betas=(0.9, 0.98), eps=1e-8))
+                           optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=learning_rate))
     q_fun = QFun(model=ffw,
                  eval_switch=ffw.eval,
                  list_to_tensor=torch.Tensor,
@@ -242,6 +230,7 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                        replay_sample_size=32,
                        training_start_memory_size=64,
                        mean_reward_recency=100):
+
     # set the dimensions of the model
     # the input size is the dimension of the observation, the output size is the dimension of the action space
     dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
@@ -260,18 +249,17 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                                            training_start_memory_size=training_start_memory_size,
                                            mean_reward_recency=mean_reward_recency)
 
-
-env = gym.make('LunarLander-v2')
-
-train_lunar_lander(env,
-                   hidden_layer_dimensions=[128, 64],
-                   training_episode_count=2000,
-                   alpha=1e-4,
-                   gamma=0.99,
-                   epsilon_start=1.0,
-                   epsilon_decay=0.998,
-                   epsilon_min=0.0,
-                   replay_memory_size=2 ** 16,
-                   replay_sample_size=32,
-                   training_start_memory_size=64,
-                   mean_reward_recency=100)
+if __name__ == "__main__":
+    env = gym.make('LunarLander-v2')
+    train_lunar_lander(env,
+                       hidden_layer_dimensions=[128, 64],
+                       training_episode_count=2000,
+                       alpha=1e-4,
+                       gamma=0.99,
+                       epsilon_start=1.0,
+                       epsilon_decay=0.998,
+                       epsilon_min=0.0,
+                       replay_memory_size=2 ** 16,
+                       replay_sample_size=32,
+                       training_start_memory_size=64,
+                       mean_reward_recency=100)
