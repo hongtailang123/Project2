@@ -207,15 +207,37 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
 
 if __name__ == "__main__":
     env = gym.make('LunarLander-v2')
-    train_lunar_lander(env,
-                       hidden_layer_dimensions=[128, 64],
-                       training_episode_count=2000,
-                       alpha=1e-4,
-                       gamma=0.99,
-                       epsilon_start=1.0,
-                       epsilon_decay=0.998,
-                       epsilon_min=0.0,
-                       replay_memory_size=2 ** 16,
-                       replay_sample_size=32,
-                       training_start_memory_size=64,
-                       most_recent_count=100)
+
+    hidden_layer_dimensions = [128, 64]
+    alpha = 0.0001
+    epsilon_start = 1
+    epsilon_decay = 0.998
+    epsilon_min = 0.01
+    gamma = 0.09
+    training_episode_count = 1000
+    replay_memory_size = 65536
+    replay_sample_size = 32
+    training_start_memory_size = 128
+    most_recent_count = 100
+
+
+    # set the dimensions of the model
+    # the input size is the dimension of the observation, the output size is the dimension of the action space
+    dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
+
+    ffw = FeedForwardNetwork(dimensions=dimensions,
+                             loss_fun=nnF.mse_loss,
+                             optimizer=lambda mode_paras: torch.optim.Adam(mode_paras, lr=alpha))
+
+    lunar_lander = QLearner(env=env,
+                            model=ffw,
+                            epsilon_decay=epsilon_decay,
+                            epsilon_min=epsilon_min,
+                            gamma=gamma)
+
+    mean_reward, logs = lunar_lander.train(episode_count=training_episode_count,
+                                           epsilon_start=epsilon_start,
+                                           replay_memory=replay_memory_size,
+                                           replay_sample_size=replay_sample_size,
+                                           training_start_memory_size=training_start_memory_size,
+                                           mean_reward_recency=most_recent_count)
