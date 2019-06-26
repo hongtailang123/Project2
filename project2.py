@@ -27,15 +27,12 @@ class FeedForwardNetwork(nn.Module):
     def forward(self, x):
         return self.ffw(x)
 
-    def train(self, mini_batches):
+    def train(self, states, qvalues):
         self.ffw.train()
-        loss = None
-        for x, y in mini_batches:
-            self.zero_grad()
-            loss = self.loss_fun(self.__call__(x), y)
-            loss.backward()
-            self.optimizer.step()
-
+        self.optimizer.zero_grad()
+        loss = self.loss_fun(self.__call__(states), qvalues)
+        loss.backward()
+        self.optimizer.step()
         return loss
 
 
@@ -124,7 +121,8 @@ class QLearner:
                 if train:
                     replay_memory.append((current_state, act, reward, next_state, done))
                     if len(replay_memory) >= training_start_memory_size:
-                        loss = float(self.model.train([self.get_experience_replay_data(replay_memory, replay_sample_size)]))
+                        states, qvalues = self.get_experience_replay_data(replay_memory, replay_sample_size)
+                        loss = float(self.model.train(states, qvalues))
                     else:
                         loss = 0
 
