@@ -53,7 +53,7 @@ class QLearner:
         self.gamma = gamma
 
     def get_experience_replay_data(self, replay_memory, replay_size):
-        # current states, actions, rewards, next states and 'done' flags
+        # current states, actions, rewards, next states and done
         experience_sample = random.sample(replay_memory, replay_size)
 
         # current states
@@ -109,26 +109,26 @@ class QLearner:
 
             train_start_time = time()
             while not done:
-                prev_state = current_state
 
                 # epsilon greedy strategy to select the actions to take
                 if current_epsilon > 0 and random.random() < current_epsilon:
                     act = env.action_space.sample()
                 else:
-                    current_state = torch.from_numpy(current_state)
-                    act = int(torch.argmax(model.predict(current_state)))
+                    act = int(torch.argmax(model.predict(torch.from_numpy(current_state))))
 
                 # interact with the environment
-                current_state, reward, done, info = env.step(act)
+                next_state, reward, done, info = env.step(act)
 
                 if render:
                     env.render();
                 if train:
-                    replay_memory.append((prev_state, act, reward, current_state, done))
+                    replay_memory.append((current_state, act, reward, next_state, done))
                     if len(replay_memory) >= training_start_memory_size:
                         loss = float(self.model.train([self.get_experience_replay_data(replay_memory, replay_sample_size)]))
                     else:
                         loss = 0
+
+                current_state = next_state
                 total_reward += reward
                 action_count += 1
             curr_time_use = time() - train_start_time
