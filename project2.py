@@ -171,18 +171,19 @@ class QLearner:
                         most_recent_count=episode_count,
                         logging=logging, train=continued_learning, render=render)
 
-
-def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
-                       training_episode_count=2000,
-                       alpha=1e-4,
-                       gamma=0.99,
-                       epsilon_start=1.0,
-                       epsilon_decay=0.998,
-                       epsilon_min=0.0,
-                       replay_memory_size=2 ** 16,
-                       replay_sample_size=32,
-                       training_start_memory_size=64,
-                       most_recent_count=100):
+if __name__ == "__main__":
+    env = gym.make('LunarLander-v2')
+    hidden_layer_dimensions=[128, 64]
+    training_episode_count=2000
+    alpha=1e-4
+    gamma=0.99
+    epsilon_start=1.0
+    epsilon_decay=0.998
+    epsilon_min=0.0
+    replay_memory_size=2 ** 16
+    replay_sample_size=32
+    training_start_memory_size=64
+    most_recent_count=100
 
     # set the dimensions of the model
     # the input size is the dimension of the observation, the output size is the dimension of the action space
@@ -204,18 +205,3 @@ def train_lunar_lander(env, hidden_layer_dimensions=[128, 64],
                                            replay_sample_size=replay_sample_size,
                                            training_start_memory_size=training_start_memory_size,
                                            mean_reward_recency=most_recent_count)
-
-if __name__ == "__main__":
-    env = gym.make('LunarLander-v2')
-    train_lunar_lander(env,
-                       hidden_layer_dimensions=[128, 64],
-                       training_episode_count=2000,
-                       alpha=1e-4,
-                       gamma=0.99,
-                       epsilon_start=1.0,
-                       epsilon_decay=0.998,
-                       epsilon_min=0.0,
-                       replay_memory_size=2 ** 16,
-                       replay_sample_size=32,
-                       training_start_memory_size=64,
-                       most_recent_count=100)
