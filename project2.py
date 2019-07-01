@@ -145,12 +145,23 @@ class QLearner:
         return
 
     def test(self, num_episodes, dimensions, gamma, alpha):
-        return
         model = FeedForwardNetwork(dimensions=dimensions,
                                    loss_fun=nnF.mse_loss,
                                    optimizer=lambda parameters: torch.optim.Adam(parameters, lr=alpha))
-        model.load_state_dict(torch.load("result_gamma{}_alpha{}.model").format(gamma, alpha))
-        model.eval()
+        model.load_state_dict(torch.load("result_gamma{}_alpha{}.model".format(gamma, alpha)))
+
+        for episode_index in range(num_episodes):
+            current_state = env.reset()
+            done = False
+
+            while not done:
+                act = int(torch.argmax(model.predict(torch.from_numpy(current_state))))
+
+                # interact with the environment
+                next_state, reward, done, info = env.step(act)
+                env.render()
+                current_state = next_state
+
 
 
 if __name__ == "__main__":
@@ -183,12 +194,14 @@ if __name__ == "__main__":
                             epsilon_min=epsilon_min,
                             gamma=gamma)
 
+    lunar_lander.test(num_episodes=20, dimensions=dimensions, gamma=gamma, alpha=alpha)
 
-    lunar_lander.train(num_episodes=training_episode_count,
-                       current_epsilon=epsilon_start,
-                       alpha = alpha,
-                       gamma = gamma,
-                       replay_memory=replay_memory_size,
-                       replay_sample_size=replay_sample_size,
-                       training_start_memory_size=max(replay_sample_size, training_start_memory_size),
-                       most_recent_count=most_recent_count)
+
+    # lunar_lander.train(num_episodes=training_episode_count,
+    #                    current_epsilon=epsilon_start,
+    #                    alpha = alpha,
+    #                    gamma = gamma,
+    #                    replay_memory=replay_memory_size,
+    #                    replay_sample_size=replay_sample_size,
+    #                    training_start_memory_size=max(replay_sample_size, training_start_memory_size),
+    #                    most_recent_count=most_recent_count)
