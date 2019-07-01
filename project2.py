@@ -6,60 +6,28 @@ from collections import deque
 import random
 import torch.nn.functional as nnF
 
-
-class FeedForwardNetwork(nn.Module):
-    def __init__(self, dimensions, loss_fun, optimizer):
-        super(FeedForwardNetwork, self).__init__()
-
-        self.layer_count = len(dimensions) - 1
-        layers = []
-        for i in range(self.layer_count):
-            layers.append(nn.Linear(dimensions[i], dimensions[i + 1]))
-            if i != self.layer_count - 1:
-                layers.append(nn.ReLU())
-
-        self.ffw = nn.Sequential(*layers)
-        self.loss_fun = loss_fun
-        self.optimizer = optimizer(self.parameters())
-
-    def forward(self, x):
-        return self.ffw(x)
-
-    def train(self, states, qvalues):
-        self.ffw.train()
-        self.optimizer.zero_grad()
-        loss = self.loss_fun(self.__call__(states), qvalues)
-        loss.backward()
-        self.optimizer.step()
-        return loss
-
-
-    def predict(self, x):
-        self.ffw.eval()
-        return self.__call__(x)
-
-
 class QLearner:
-    def __init__(self, env, model, epsilon_decay, epsilon_min, gamma):
+    def __init__(self, env, epsilon_decay, epsilon_min, gamma, hidden_layer_dimensions, alpha):
         self.env = env
-        self.model = model
         self.epsilon_decay = epsilon_decay
         self.epsilon_end = epsilon_min
         self.gamma = gamma
+        self.hidden_layer_dimensions = hidden_layer_dimensions
+        self.alpha = alpha
 
-    def get_experience_replay_data(self, replay_memory, replay_size):
+    def get_experience_replay_data(self, replay_memory, replay_size, ffw):
         # current states, actions, rewards, next states and done
         experience_sample = random.sample(replay_memory, replay_size)
 
         # current states
         states = [es[0] for es in experience_sample]
         states = torch.tensor(states)
-        q_vals = self.model.predict(states)
+        q_vals = ffw(states)
 
         # next states
         states_next = [es[3] for es in experience_sample]
         states_next = torch.tensor(states_next)
-        q_vals_next = self.model.predict(states_next)
+        q_vals_next = ffw(states_next)
 
         for i in range(replay_size):
             a = experience_sample[i][1]
@@ -77,7 +45,6 @@ class QLearner:
               num_episodes,
               current_epsilon,
               alpha,
-              gamma,
               replay_memory,
               replay_sample_size,
               training_start_memory_size,
@@ -86,9 +53,26 @@ class QLearner:
 
         # initial set up
         logs = None
-        env, model = self.env, self.model
+        env = self.env
         replay_memory = deque([], maxlen=replay_memory)
         recent_rewards = [0] * most_recent_count
+
+        # set the dimensions of the model
+        # the input size is the dimension of the observation, the output size is the dimension of the action space
+        dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
+
+        # set up the neural network
+        layer_count = len(dimensions) - 1
+        layers = []
+        for i in range(layer_count):
+            layers.append(nn.Linear(dimensions[i], dimensions[i + 1]))
+            if i != layer_count - 1:
+                layers.append(nn.ReLU())
+
+        ffw = nn.Sequential(*layers)
+        loss_fun = nnF.mse_loss
+        optimizer = torch.optim.Adam(ffw.parameters(), lr=self.alpha)
+
 
         for episode_index in range(num_episodes):
 
@@ -103,7 +87,7 @@ class QLearner:
                 if current_epsilon > 0 and random.random() < current_epsilon:
                     act = env.action_space.sample()
                 else:
-                    act = int(torch.argmax(model.predict(torch.from_numpy(current_state))))
+                    act = int(torch.argmax(ffw(torch.from_numpy(current_state))))
 
                 # interact with the environment
                 next_state, reward, done, info = env.step(act)
@@ -111,8 +95,11 @@ class QLearner:
                 # add to the replay memory
                 replay_memory.append((current_state, act, reward, next_state, done))
                 if len(replay_memory) >= training_start_memory_size:
-                    states, qvalues = self.get_experience_replay_data(replay_memory, replay_sample_size)
-                    loss = float(self.model.train(states, qvalues))
+                    states, qvalues = self.get_experience_replay_data(replay_memory, replay_sample_size, ffw)
+                    optimizer.zero_grad()
+                    loss = loss_fun(ffw(states), qvalues)
+                    loss.backward()
+                    optimizer.step()
 
                 # update state, reward, action count
                 current_state = next_state
@@ -137,25 +124,33 @@ class QLearner:
             print("Episode:{}, Current Reward: {}, Mean Reward: {:.3f}, Train Loss: {:.3f}, Epsilon: {:.5f}".format(*log_entry))
 
         # save the log to csv
-        logs.to_csv("result_gamma{}_alpha{}.csv".format(gamma, alpha), index=False)
+        logs.to_csv("result_gamma{}_alpha{}_test.csv".format(self.gamma, alpha), index=False)
 
         # save the model
-        torch.save(model.state_dict(), "result_gamma{}_alpha{}.model".format(gamma, alpha))
+        torch.save(ffw.state_dict(), "result_gamma{}_alpha{}_test.model".format(self.gamma, alpha))
 
         return
 
-    def test(self, num_episodes, dimensions, gamma, alpha):
-        model = FeedForwardNetwork(dimensions=dimensions,
-                                   loss_fun=nnF.mse_loss,
-                                   optimizer=lambda parameters: torch.optim.Adam(parameters, lr=alpha))
-        model.load_state_dict(torch.load("result_gamma{}_alpha{}.model".format(gamma, alpha)))
+    def test(self, num_episodes, hidden_layer_dimensions, model_name):
+        dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
+
+        # set up the neural network
+        layer_count = len(dimensions) - 1
+        layers = []
+        for i in range(layer_count):
+            layers.append(nn.Linear(dimensions[i], dimensions[i + 1]))
+            if i != layer_count - 1:
+                layers.append(nn.ReLU())
+
+        ffw = nn.Sequential(*layers)
+        ffw.load_state_dict(torch.load(model_name))
 
         for episode_index in range(num_episodes):
             current_state = env.reset()
             done = False
 
             while not done:
-                act = int(torch.argmax(model.predict(torch.from_numpy(current_state))))
+                act = int(torch.argmax(ffw(torch.from_numpy(current_state))))
 
                 # interact with the environment
                 next_state, reward, done, info = env.step(act)
@@ -167,7 +162,7 @@ class QLearner:
 if __name__ == "__main__":
     env = gym.make('LunarLander-v2')
     hidden_layer_dimensions = [128, 64]
-    training_episode_count = 1000
+    training_episode_count = 200
     alpha = 1e-4
     gamma = 0.99
     epsilon_start = 1.0
@@ -178,29 +173,19 @@ if __name__ == "__main__":
     training_start_memory_size = 64
     most_recent_count = 100
 
-    # set the dimensions of the model
-    # the input size is the dimension of the observation, the output size is the dimension of the action space
-    dimensions = [env.observation_space.shape[0]] + hidden_layer_dimensions + [env.action_space.n]
-
-    ffw = FeedForwardNetwork(dimensions=dimensions,
-                             loss_fun=nnF.mse_loss,
-                             optimizer=lambda parameters: torch.optim.Adam(parameters, lr=alpha))
-
-
-
     lunar_lander = QLearner(env=env,
-                            model=ffw,
                             epsilon_decay=epsilon_decay,
                             epsilon_min=epsilon_min,
-                            gamma=gamma)
+                            gamma=gamma,
+                            hidden_layer_dimensions=hidden_layer_dimensions,
+                            alpha=alpha)
 
-    lunar_lander.test(num_episodes=20, dimensions=dimensions, gamma=gamma, alpha=alpha)
+    lunar_lander.test(num_episodes=20, hidden_layer_dimensions=hidden_layer_dimensions, model_name="result_gamma0.99_alpha0.0001_test.model")
 
 
     # lunar_lander.train(num_episodes=training_episode_count,
     #                    current_epsilon=epsilon_start,
     #                    alpha = alpha,
-    #                    gamma = gamma,
     #                    replay_memory=replay_memory_size,
     #                    replay_sample_size=replay_sample_size,
     #                    training_start_memory_size=max(replay_sample_size, training_start_memory_size),
