@@ -76,6 +76,8 @@ class QLearner:
     def train(self,
               num_episodes,
               current_epsilon,
+              alpha,
+              gamma,
               replay_memory,
               replay_sample_size,
               training_start_memory_size,
@@ -137,22 +139,24 @@ class QLearner:
         # save the log to csv
         logs.to_csv("result_gamma{}_alpha{}.csv".format(gamma, alpha), index=False)
 
+        # save the model
+        torch.save(model.state_dict(), "result_gamma{}_alpha{}.model".format(gamma, alpha))
+
         return
 
-    def test(self, start_episode_idx=0, episode_count=100, logging=True, continued_learning=True, replay_memory=2 ** 16,
-             replay_sample_size=32, render=False):
-        return self.run(start_episode_idx=start_episode_idx,
-                        num_episodes=episode_count,
-                        current_epsilon=0,
-                        replay_memory=replay_memory,
-                        replay_sample_size=replay_sample_size,
-                        most_recent_count=episode_count,
-                        logging=logging, train=continued_learning, render=render)
+    def test(self, num_episodes, dimensions, gamma, alpha):
+        return
+        model = FeedForwardNetwork(dimensions=dimensions,
+                                   loss_fun=nnF.mse_loss,
+                                   optimizer=lambda parameters: torch.optim.Adam(parameters, lr=alpha))
+        model.load_state_dict(torch.load("result_gamma{}_alpha{}.model").format(gamma, alpha))
+        model.eval()
+
 
 if __name__ == "__main__":
     env = gym.make('LunarLander-v2')
     hidden_layer_dimensions = [128, 64]
-    training_episode_count = 200
+    training_episode_count = 1000
     alpha = 1e-4
     gamma = 0.99
     epsilon_start = 1.0
@@ -171,14 +175,19 @@ if __name__ == "__main__":
                              loss_fun=nnF.mse_loss,
                              optimizer=lambda parameters: torch.optim.Adam(parameters, lr=alpha))
 
+
+
     lunar_lander = QLearner(env=env,
                             model=ffw,
                             epsilon_decay=epsilon_decay,
                             epsilon_min=epsilon_min,
                             gamma=gamma)
 
+
     lunar_lander.train(num_episodes=training_episode_count,
                        current_epsilon=epsilon_start,
+                       alpha = alpha,
+                       gamma = gamma,
                        replay_memory=replay_memory_size,
                        replay_sample_size=replay_sample_size,
                        training_start_memory_size=max(replay_sample_size, training_start_memory_size),
