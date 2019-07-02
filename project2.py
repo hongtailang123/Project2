@@ -6,14 +6,19 @@ from collections import deque
 import random
 import torch.nn.functional as nnF
 
-class QLearner:
-    def __init__(self, env, epsilon_decay, epsilon_min, gamma, hidden_layer_dimensions, alpha):
+class LunarLander:
+    def __init__(self, env, epsilon_start, epsilon_decay, epsilon_min, hidden_layer_dimensions, gamma, alpha, replay_memory_size, replay_sample_size, training_start_memory_size):
         self.env = env
+        self.epsilon_start = epsilon_start
         self.epsilon_decay = epsilon_decay
         self.epsilon_end = epsilon_min
-        self.gamma = gamma
         self.hidden_layer_dimensions = hidden_layer_dimensions
+        self.gamma = gamma
         self.alpha = alpha
+        self.replay_memory_size = replay_memory_size
+        self.replay_sample_size = replay_sample_size
+        self.training_start_memory_size = training_start_memory_size
+
 
     def get_experience_replay_data(self, replay_memory, replay_size, ffw):
         # current states, actions, rewards, next states and done
@@ -41,21 +46,16 @@ class QLearner:
 
         return states, q_vals
 
-    def train(self,
-              num_episodes,
-              current_epsilon,
-              alpha,
-              replay_memory,
-              replay_sample_size,
-              training_start_memory_size,
-              most_recent_count):
+    def train(self, num_episodes):
 
 
         # initial set up
         logs = None
         env = self.env
-        replay_memory = deque([], maxlen=replay_memory)
+        replay_memory = deque([], maxlen=self.replay_memory_size)
+        most_recent_count = 100
         recent_rewards = [0] * most_recent_count
+        current_epsilon = self.epsilon_start
 
         # set the dimensions of the model
         # the input size is the dimension of the observation, the output size is the dimension of the action space
@@ -94,8 +94,8 @@ class QLearner:
 
                 # add to the replay memory
                 replay_memory.append((current_state, act, reward, next_state, done))
-                if len(replay_memory) >= training_start_memory_size:
-                    states, qvalues = self.get_experience_replay_data(replay_memory, replay_sample_size, ffw)
+                if len(replay_memory) >= self.training_start_memory_size:
+                    states, qvalues = self.get_experience_replay_data(replay_memory, self.replay_sample_size, ffw)
                     optimizer.zero_grad()
                     loss = loss_fun(ffw(states), qvalues)
                     loss.backward()
@@ -117,17 +117,18 @@ class QLearner:
             else:
                 most_rent_mean_reward = sum(recent_rewards) / (episode_index + 1)
 
-            log_entry = (episode_index, total_reward, most_rent_mean_reward, loss, current_epsilon)
+            log_entry = (episode_index, total_reward, most_rent_mean_reward, float(loss), current_epsilon)
             if logs is None:
                 logs = pd.DataFrame(columns=("Episode", "Total Reward", "Mean Reward", "Train Loss", "Epsilon"))
             logs.loc[episode_index] = log_entry
-            print("Episode:{}, Current Reward: {}, Mean Reward: {:.3f}, Train Loss: {:.3f}, Epsilon: {:.5f}".format(*log_entry))
+            print("Episode:{}, Current Reward: {:.3f}, Mean Reward: {:.3f}, Train Loss: {:.3f}, Epsilon: {:.5f}".format(*log_entry))
 
         # save the log to csv
-        logs.to_csv("result_gamma{}_alpha{}_test.csv".format(self.gamma, alpha), index=False)
+        logs.to_csv("result_gamma{}_alpha{}_initialEpsilon{}_decay{}_hidden1{}_hidden2{}.csv".
+                    format(self.gamma, self.alpha, self.initial_epsilon, self.epsilon_decay, self.hidden_layer_dimensions[0], self.hidden_layer_dimensions[1]), index=False)
 
         # save the model
-        torch.save(ffw.state_dict(), "result_gamma{}_alpha{}_test.model".format(self.gamma, alpha))
+        torch.save(ffw.state_dict(), "result_gamma{}_alpha{}.model".format(self.gamma, self.alpha))
 
         return
 
@@ -162,31 +163,29 @@ class QLearner:
 if __name__ == "__main__":
     env = gym.make('LunarLander-v2')
     hidden_layer_dimensions = [128, 64]
-    training_episode_count = 200
+    training_episode_count = 1200
     alpha = 1e-4
     gamma = 0.99
     epsilon_start = 1.0
     epsilon_decay = 0.998
-    epsilon_min = 0.0
+    epsilon_min = 0.01
     replay_memory_size = 65536
     replay_sample_size = 32
     training_start_memory_size = 64
     most_recent_count = 100
 
-    lunar_lander = QLearner(env=env,
+    lunar_lander = LunarLander(env=env,
+                            epsilon_start=epsilon_start,
                             epsilon_decay=epsilon_decay,
                             epsilon_min=epsilon_min,
-                            gamma=gamma,
                             hidden_layer_dimensions=hidden_layer_dimensions,
-                            alpha=alpha)
+                            gamma=gamma,
+                            alpha=alpha,
+                            replay_memory_size=replay_memory_size,
+                            replay_sample_size=replay_sample_size,
+                            training_start_memory_size=training_start_memory_size)
 
-    lunar_lander.test(num_episodes=20, hidden_layer_dimensions=hidden_layer_dimensions, model_name="result_gamma0.99_alpha0.0001_test.model")
+    # lunar_lander.test(num_episodes=20, hidden_layer_dimensions=hidden_layer_dimensions, model_name="result_gamma0.99_alpha0.0001.model")
 
 
-    # lunar_lander.train(num_episodes=training_episode_count,
-    #                    current_epsilon=epsilon_start,
-    #                    alpha = alpha,
-    #                    replay_memory=replay_memory_size,
-    #                    replay_sample_size=replay_sample_size,
-    #                    training_start_memory_size=max(replay_sample_size, training_start_memory_size),
-    #                    most_recent_count=most_recent_count)
+    lunar_lander.train(num_episodes=training_episode_count)
