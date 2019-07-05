@@ -125,10 +125,11 @@ class LunarLander:
 
         # save the log to csv
         logs.to_csv("result_gamma{}_alpha{}_initialEpsilon{}_decay{}_hidden1{}_hidden2{}.csv".
-                    format(self.gamma, self.alpha, self.initial_epsilon, self.epsilon_decay, self.hidden_layer_dimensions[0], self.hidden_layer_dimensions[1]), index=False)
+                    format(self.gamma, self.alpha, self.epsilon_start, self.epsilon_decay, self.hidden_layer_dimensions[0], self.hidden_layer_dimensions[1]), index=False)
 
         # save the model
-        torch.save(ffw.state_dict(), "result_gamma{}_alpha{}.model".format(self.gamma, self.alpha))
+        torch.save(ffw.state_dict(), "result_gamma{}_alpha{}_initialEpsilon{}_decay{}_hidden1{}_hidden2{}.model".
+                    format(self.gamma, self.alpha, self.epsilon_start, self.epsilon_decay, self.hidden_layer_dimensions[0], self.hidden_layer_dimensions[1]))
 
         return
 
